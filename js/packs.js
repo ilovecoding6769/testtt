@@ -174,29 +174,71 @@
   }
 
   // ---------- Templates ----------
+  // Short grade names as printed on slab labels
+  const GRADE_ABBR = { 10: "GEM MT", 9: "MINT", 8: "NM-MT", 7: "NM", 6: "EX-MT", 5: "EX", 4: "VG-EX", 3: "VG", 2: "GOOD", 1: "PR" };
+
+  // Original card artwork (no real card photos or official artwork)
+  function sportFace(c) {
+    return `
+      <div class="tcard sc r-${c.rarity}" style="--c1:${c.c1};--c2:${c.c2}">
+        <div class="sc-art">
+          <span class="sc-year">${c.year}</span>
+          <span class="sc-ball">${c.icon}</span>
+          <svg class="sc-jersey" viewBox="0 0 100 100" aria-hidden="true">
+            <path d="M33 8 L43 4 Q50 13 57 4 L67 8 L92 25 L81 42 L72 35 L72 95 L28 95 L28 35 L19 42 L8 25 Z"
+              fill="var(--c1)" stroke="var(--c2)" stroke-width="3.5" stroke-linejoin="round"/>
+            <path d="M43 4 Q50 13 57 4" fill="none" stroke="var(--c2)" stroke-width="3"/>
+            <text x="50" y="72" text-anchor="middle">${c.no}</text>
+          </svg>
+        </div>
+        <div class="sc-plate"><b>${c.name}</b><span>${c.team}</span></div>
+      </div>`;
+  }
+
+  function pokemonFace(c) {
+    const symbol = c.holo ? "★" : { common: "●", uncommon: "◆" }[c.label.toLowerCase()] || "★";
+    return `
+      <div class="tcard pk r-${c.rarity}${c.holo ? " holo" : ""}" style="--c1:${c.c1};--c2:${c.c2}">
+        <div class="pk-top"><b>${c.name}</b><span>${c.icon}</span></div>
+        <div class="pk-art"><span>${c.icon}</span></div>
+        <div class="pk-text">${c.type} type<br><small>${c.label}</small></div>
+        <div class="pk-foot"><span>${c.num}</span><span>${symbol}</span></div>
+      </div>`;
+  }
+
+  function certFor(pull) {
+    let h = 7;
+    for (const ch of pull.uid) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
+    return String(10000000 + (h % 89999999));
+  }
+
   function cardHTML(pull) {
     const c = BY_ID[pull.cardId];
-    const card = `
-      <div class="tcard r-${c.rarity}" style="--c1:${c.c1};--c2:${c.c2}">
-        <div class="tcard-head"><span class="tcard-name">${c.name}</span><span class="tcard-detail">${c.detail}</span></div>
-        <div class="tcard-art"><span class="tcard-icon">${c.icon}</span></div>
-        <div class="tcard-sub"><span class="sub-text">${c.sub}</span></div>
-        <div class="tcard-foot"><span class="rarity-tag">${c.label || TIER_LABEL[c.rarity]}</span><span class="tcard-price">${money(pullValue(pull))}</span></div>
-      </div>`;
+    const face = c.kind === "pokemon" ? pokemonFace(c) : sportFace(c);
+    const value = `<span class="value-pill">${money(pullValue(pull))}</span>`;
     const g = GRADE_BY_NUM[pull.grade];
-    if (!g) return card; // older ungraded pulls
-    const setLine = c.sub.split(" · ")[0];
+    if (!g) return `<div class="raw-card">${face}${value}</div>`; // older ungraded pulls
+
+    const variety = c.kind === "pokemon" ? (c.holo ? "HOLO" : "") : c.rarity === "secret" ? "GRAIL" : "";
     return `
-      <div class="slab g${g.g}">
+      <div class="slab g${g.g}" title="${g.g} ${g.name} · raw ${money(c.price)}">
         <div class="slab-label">
-          <div class="slab-info">
-            <span class="slab-set">${setLine} ${c.detail}</span>
-            <span class="slab-name">${c.name}</span>
-            <span class="slab-raw">Raw ${money(c.price)}</span>
+          <div class="sl-left">
+            <span>${c.year} ${c.brand}</span>
+            <span>${c.name}</span>
+            <span>${variety || "&nbsp;"}</span>
+            <i class="sl-barcode"></i>
           </div>
-          <div class="slab-grade"><b>${g.g}</b><span>${g.name}</span></div>
+          <div class="sl-right">
+            <span>${c.kind === "pokemon" ? c.num.split("/")[0] : "#" + c.num}</span>
+            <span class="sl-grade">${GRADE_ABBR[g.g]}</span>
+            <b class="sl-num">${g.g}</b>
+            <span class="sl-cert">${certFor(pull)}</span>
+          </div>
+          <span class="sl-brand">PACK RIPS</span>
         </div>
-        <div class="slab-window">${card}</div>
+        <div class="slab-window">${face}</div>
+        ${value}
       </div>`;
   }
 

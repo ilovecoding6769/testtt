@@ -167,18 +167,43 @@ window.CardData = (function () {
 
   const SPORT_ICON = { baseball: "⚾", football: "🏈", basketball: "🏀" };
 
+  // Jersey number each player wore for the team on the card (used in the card artwork)
+  const JERSEY = {
+    "Mickey Mantle": 7, "Willie Mays": 24, "Hank Aaron": 44, "Pete Rose": 14, "Nolan Ryan": 30,
+    "Mike Trout": 27, "Derek Jeter": 2, "Cal Ripken Jr.": 8, "Ken Griffey Jr.": 24, "Rickey Henderson": 35,
+    "Roger Clemens": 21, "Mariano Rivera": 42, "Shohei Ohtani": 17, "Juan Soto": 22, "Frank Thomas": 35,
+    "Mark McGwire": 25, "Ronald Acuña Jr.": 13, "Barry Bonds": 24, "Greg Maddux": 31, "Billy Ripken": 3,
+    "Jose Canseco": 33, "Chipper Jones": 10,
+    "Tom Brady": 12, "Jim Brown": 32, "Joe Namath": 12, "Johnny Unitas": 19, "Patrick Mahomes": 15,
+    "Walter Payton": 34, "Joe Montana": 16, "Josh Allen": 17, "Jerry Rice": 80, "Lamar Jackson": 8,
+    "Dan Marino": 13, "John Elway": 7, "Aaron Rodgers": 12, "Joe Burrow": 9, "Justin Herbert": 10,
+    "Barry Sanders": 20, "Brett Favre": 4, "Troy Aikman": 8, "Emmitt Smith": 22, "Deion Sanders": 21,
+    "Bo Jackson": 34,
+    "Wilt Chamberlain": 13, "Michael Jordan": 23, "Bill Russell": 6, "Lew Alcindor": 33, "LeBron James": 23,
+    "Kobe Bryant": 8, "Stephen Curry": 30, "Giannis Antetokounmpo": 34, "Luka Dončić": 77, "Kevin Durant": 35,
+    "Dwyane Wade": 3, "Carmelo Anthony": 15, "Zion Williamson": 1, "Ja Morant": 12, "Chris Bosh": 4,
+    "Shaquille O'Neal": 32,
+  };
+
   const CARDS = [];
 
   function addSports(set, rows) {
     rows.forEach(([player, setName, num, team, price]) => {
       const [c1, c2] = TEAMS[team];
+      const [year, ...brand] = setName.split(" ");
       CARDS.push({
         id: `${set}-${slug(`${player} ${setName} ${num}`)}`,
         set,
+        kind: "sport",
         name: player,
         rarity: tierFor(price),
         price,
         icon: SPORT_ICON[set],
+        year,
+        brand: brand.join(" "),
+        team,
+        no: JERSEY[player] ?? "",
+        num,
         sub: `${setName} · ${team}`,
         detail: "#" + num,
         c1,
@@ -196,6 +221,12 @@ window.CardData = (function () {
     CARDS.push({
       id: "pokemon-" + slug(`${name} base ${num}`),
       set: "pokemon",
+      kind: "pokemon",
+      type,
+      holo: printed === H,
+      year: "1999",
+      brand: "Pokémon Base Set",
+      num: `${num}/102`,
       name,
       rarity: tierFor(price),
       label: printed, // show the card's printed rarity instead of the value tier
