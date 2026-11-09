@@ -1,6 +1,42 @@
 // Pack opener: buying, ripping, revealing, keeping/selling cards.
-(function () {
-  const { RARITIES, TIER_LABEL, TIER_RANGE, CARDS, SETS, PACKS } = window.CardData;
+(async function () {
+  const { RARITIES, TIER_LABEL, TIER_RANGE, CARDS, SETS, PACKS, tierFor } = window.CardData;
+
+  // Live Pokémon prices: data/pokemon-prices.json is written by the deploy workflow.
+  // If it is missing or slow, the built-in estimates are used instead.
+  async function loadLivePrices() {
+    try {
+      const ctrl = new AbortController();
+      const timer = setTimeout(() => ctrl.abort(), 4000);
+      const hour = new Date().toISOString().slice(0, 13);
+      const res = await fetch("data/pokemon-prices.json?h=" + hour, { signal: ctrl.signal });
+      clearTimeout(timer);
+      if (!res.ok) return null;
+      const data = await res.json();
+      let count = 0;
+      CARDS.forEach((c) => {
+        if (c.set !== "pokemon") return;
+        const p = data.prices[c.detail.split("/")[0]];
+        if (p > 0) {
+          c.price = Math.round(p * 100) / 100;
+          c.rarity = tierFor(c.price);
+          count++;
+        }
+      });
+      return count ? { updated: data.pricesUpdated, count } : null;
+    } catch {
+      return null;
+    }
+  }
+
+  const live = await loadLivePrices();
+  const note = document.getElementById("price-note");
+  if (note) {
+    note.textContent = live
+      ? `Pokémon values: live TCGplayer market prices (updated ${live.updated}). Sports values: estimates.`
+      : "Pokémon and sports values: estimates (live Pokémon prices unavailable right now).";
+    note.classList.toggle("live", !!live);
+  }
 
   const START_BALANCE = 10000;
   const SELL_RATE = 0.85; // sell back for 85% of card value

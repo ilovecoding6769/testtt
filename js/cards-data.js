@@ -237,5 +237,5 @@ window.CardData = (function () {
     { id: "pokemon-premium", set: "pokemon", name: "Premium Pack", icon: "🔥", c1: "#7f1d1d", c2: "#f59e0b", ...ELITE },
   ].map((p) => ({ cards: 5, ...p }));
 
-  return { RARITIES, TIER_LABEL, TIER_RANGE, CARDS, SETS, PACKS };
+  return { RARITIES, TIER_LABEL, TIER_RANGE, CARDS, SETS, PACKS, tierFor };
 })();

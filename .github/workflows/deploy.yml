@@ -1,10 +1,13 @@
-# Deploys the site to GitHub Pages on every push to main.
+# Deploys the site to GitHub Pages on every push to main, and once a day
+# so live Pokémon prices stay fresh.
 # One-time setup: repo Settings -> Pages -> Source: "GitHub Actions".
 name: Deploy to GitHub Pages
 
 on:
   push:
     branches: [main]
+  schedule:
+    - cron: "0 9 * * *" # daily at 09:00 UTC
   workflow_dispatch:
 
 permissions:
@@ -25,6 +28,18 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      # If the price API is down, the site still deploys and falls back to estimates
+      - name: Fetch live Pokémon prices
+        continue-on-error: true
+        env:
+          POKEMONTCG_API_KEY: ${{ secrets.POKEMONTCG_API_KEY }}
+        run: node scripts/fetch-pokemon-prices.mjs
 
       - name: Configure Pages
         uses: actions/configure-pages@v5
