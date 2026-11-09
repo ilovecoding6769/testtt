@@ -1,11 +1,11 @@
 // Pack opener: buying, ripping, revealing, keeping/selling cards.
 (function () {
-  const { RARITIES, RARITY_LABEL, CARDS, SETS, PACKS } = window.CardData;
+  const { RARITIES, TIER_LABEL, TIER_RANGE, CARDS, SETS, PACKS } = window.CardData;
 
-  const START_BALANCE = 1000;
+  const START_BALANCE = 10000;
   const SELL_RATE = 0.85; // sell back for 85% of card value
-  const SERIAL_RUN = { rare: 199, ultra: 25, secret: 1 };
-  const STORAGE_KEY = "packRipState.v1";
+  const HOUSE_EDGE = 1.1; // pack price = expected value + 10%
+  const STORAGE_KEY = "packRipState.v2";
 
   const BY_ID = {};
   const POOL = {};
@@ -13,6 +13,31 @@
     BY_ID[c.id] = c;
     POOL[c.set] = POOL[c.set] || {};
     (POOL[c.set][c.rarity] = POOL[c.set][c.rarity] || []).push(c);
+  });
+
+  // Drop tiers a set has no cards in, then price each pack from its expected value
+  function usable(set, weights) {
+    const out = {};
+    for (const [r, w] of Object.entries(weights)) if (POOL[set][r]) out[r] = w;
+    return out;
+  }
+  function slotEV(set, weights) {
+    const total = Object.values(weights).reduce((a, b) => a + b, 0);
+    return Object.entries(weights).reduce((sum, [r, w]) => {
+      const list = POOL[set][r];
+      return sum + (w / total) * (list.reduce((s, c) => s + c.price, 0) / list.length);
+    }, 0);
+  }
+  function nicePrice(n) {
+    if (n < 100) return Math.max(5, Math.round(n));
+    if (n < 1000) return Math.round(n / 5) * 5;
+    return Math.round(n / 25) * 25;
+  }
+  PACKS.forEach((p) => {
+    p.weights = usable(p.set, p.weights);
+    p.hit = usable(p.set, p.hit);
+    p.ev = (p.cards - 1) * slotEV(p.set, p.weights) + slotEV(p.set, p.hit);
+    p.price = nicePrice(p.ev * HOUSE_EDGE);
   });
 
   // ---------- State ----------
@@ -59,12 +84,7 @@
   function makePull(set, rarity) {
     const list = POOL[set][rarity];
     const card = list[Math.floor(Math.random() * list.length)];
-    let serial = null;
-    if (set === "sports" && SERIAL_RUN[rarity]) {
-      const run = SERIAL_RUN[rarity];
-      serial = run === 1 ? "1/1" : String(1 + Math.floor(Math.random() * run)).padStart(3, "0") + "/" + run;
-    }
-    return { uid: uid(), cardId: card.id, serial, at: Date.now() };
+    return { uid: uid(), cardId: card.id, at: Date.now() };
   }
 
   function generatePack(pack) {
@@ -97,8 +117,8 @@
       <div class="tcard r-${c.rarity}" style="--c1:${c.c1};--c2:${c.c2}">
         <div class="tcard-head"><span class="tcard-name">${c.name}</span><span class="tcard-detail">${c.detail}</span></div>
         <div class="tcard-art"><span class="tcard-icon">${c.icon}</span></div>
-        <div class="tcard-sub">${c.sub}${pull.serial ? `<span class="serial">${pull.serial}</span>` : ""}</div>
-        <div class="tcard-foot"><span class="rarity-tag">${RARITY_LABEL[c.rarity]}</span><span class="tcard-price">${money(c.price)}</span></div>
+        <div class="tcard-sub"><span class="sub-text">${c.sub}</span></div>
+        <div class="tcard-foot"><span class="rarity-tag">${c.label || TIER_LABEL[c.rarity]}</span><span class="tcard-price">${money(c.price)}</span></div>
       </div>`;
   }
 
@@ -120,7 +140,7 @@
     const pct = (weights) => {
       const total = Object.values(weights).reduce((a, b) => a + b, 0);
       return RARITIES.filter((r) => weights[r])
-        .map((r) => `<li><span class="dot d-${r}"></span>${RARITY_LABEL[r]} <b>${((weights[r] / total) * 100).toFixed(2).replace(/\.?0+$/, "")}%</b></li>`)
+        .map((r) => `<li><span class="dot d-${r}"></span>${TIER_LABEL[r]} <small>(${TIER_RANGE[r]})</small> <b>${((weights[r] / total) * 100).toFixed(2).replace(/\.?0+$/, "")}%</b></li>`)
         .join("");
     };
     return `
@@ -153,6 +173,7 @@
         <div class="pack-info">
           <h3>${SETS[p.set].name}: ${p.name}</h3>
           <div class="pack-price">${money(p.price)}</div>
+          <div class="pack-ev">Expected value ${money(p.ev)}</div>
           <button class="btn buy" data-pack="${p.id}">Rip pack</button>
           ${oddsHTML(p)}
         </div>

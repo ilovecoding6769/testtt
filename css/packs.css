@@ -191,6 +191,9 @@ body.no-scroll { overflow: hidden; }
 .tcard-name { font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .tcard-detail { font-weight: 600; opacity: 0.9; white-space: nowrap; }
 .tcard-sub { font-size: 0.68rem; justify-content: flex-start; }
+.sub-text { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.pack-ev { font-size: 0.8rem; color: var(--muted); margin: -8px 0 12px; }
+.odds small { color: var(--muted); }
 .serial {
   margin-left: auto;
   background: var(--rb);
