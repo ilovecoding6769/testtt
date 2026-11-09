@@ -43,6 +43,30 @@
   const HOUSE_EDGE = 1.1; // pack price = expected value + 10%
   const STORAGE_KEY = "packRipState.v2";
 
+  // Every pulled card comes back graded. `w` = chance weight, `m` = value multiplier
+  // versus the raw (ungraded) price. Multipliers are rough hobby averages, not live data.
+  const GRADES = [
+    { g: 10, name: "Gem Mint", w: 6, m: 5 },
+    { g: 9, name: "Mint", w: 22, m: 2.2 },
+    { g: 8, name: "NM-MT", w: 27, m: 1.4 },
+    { g: 7, name: "Near Mint", w: 18, m: 1.05 },
+    { g: 6, name: "EX-MT", w: 11, m: 0.85 },
+    { g: 5, name: "Excellent", w: 7, m: 0.7 },
+    { g: 4, name: "VG-EX", w: 4.5, m: 0.55 },
+    { g: 3, name: "Very Good", w: 2.5, m: 0.45 },
+    { g: 2, name: "Good", w: 1.5, m: 0.35 },
+    { g: 1, name: "Poor", w: 0.5, m: 0.25 },
+  ];
+  const GRADE_BY_NUM = Object.fromEntries(GRADES.map((x) => [x.g, x]));
+  const GRADE_TOTAL = GRADES.reduce((s, x) => s + x.w, 0);
+  const GRADE_EV = GRADES.reduce((s, x) => s + (x.w / GRADE_TOTAL) * x.m, 0);
+
+  function rollGrade() {
+    let r = Math.random() * GRADE_TOTAL;
+    for (const x of GRADES) if ((r -= x.w) <= 0) return x.g;
+    return 8;
+  }
+
   const BY_ID = {};
   const POOL = {};
   CARDS.forEach((c) => {
@@ -72,7 +96,7 @@
   PACKS.forEach((p) => {
     p.weights = usable(p.set, p.weights);
     p.hit = usable(p.set, p.hit);
-    p.ev = (p.cards - 1) * slotEV(p.set, p.weights) + slotEV(p.set, p.hit);
+    p.ev = ((p.cards - 1) * slotEV(p.set, p.weights) + slotEV(p.set, p.hit)) * GRADE_EV;
     p.price = nicePrice(p.ev * HOUSE_EDGE);
   });
 
@@ -120,22 +144,25 @@
   function makePull(set, rarity) {
     const list = POOL[set][rarity];
     const card = list[Math.floor(Math.random() * list.length)];
-    return { uid: uid(), cardId: card.id, at: Date.now() };
+    return { uid: uid(), cardId: card.id, grade: rollGrade(), at: Date.now() };
+  }
+
+  // Value of a pulled card = raw price × grade multiplier (older ungraded pulls count as raw)
+  function pullValue(p) {
+    const g = GRADE_BY_NUM[p.grade];
+    return round2(BY_ID[p.cardId].price * (g ? g.m : 1));
   }
 
   function generatePack(pack) {
     const pulls = [];
     for (let i = 0; i < pack.cards - 1; i++) pulls.push(makePull(pack.set, pickRarity(pack.weights)));
     pulls.push(makePull(pack.set, pickRarity(pack.hit)));
-    // Reveal order: worst first, best last
-    return pulls.sort((a, b) => {
-      const ca = BY_ID[a.cardId], cb = BY_ID[b.cardId];
-      return rarityRank(ca.rarity) - rarityRank(cb.rarity) || ca.price - cb.price;
-    });
+    // Reveal order: lowest value first, best last
+    return pulls.sort((a, b) => pullValue(a) - pullValue(b));
   }
 
   function collectionValue() {
-    return round2(state.collection.reduce((s, p) => s + BY_ID[p.cardId].price, 0));
+    return round2(state.collection.reduce((s, p) => s + pullValue(p), 0));
   }
 
   function toast(msg) {
@@ -149,12 +176,27 @@
   // ---------- Templates ----------
   function cardHTML(pull) {
     const c = BY_ID[pull.cardId];
-    return `
+    const card = `
       <div class="tcard r-${c.rarity}" style="--c1:${c.c1};--c2:${c.c2}">
         <div class="tcard-head"><span class="tcard-name">${c.name}</span><span class="tcard-detail">${c.detail}</span></div>
         <div class="tcard-art"><span class="tcard-icon">${c.icon}</span></div>
         <div class="tcard-sub"><span class="sub-text">${c.sub}</span></div>
-        <div class="tcard-foot"><span class="rarity-tag">${c.label || TIER_LABEL[c.rarity]}</span><span class="tcard-price">${money(c.price)}</span></div>
+        <div class="tcard-foot"><span class="rarity-tag">${c.label || TIER_LABEL[c.rarity]}</span><span class="tcard-price">${money(pullValue(pull))}</span></div>
+      </div>`;
+    const g = GRADE_BY_NUM[pull.grade];
+    if (!g) return card; // older ungraded pulls
+    const setLine = c.sub.split(" · ")[0];
+    return `
+      <div class="slab g${g.g}">
+        <div class="slab-label">
+          <div class="slab-info">
+            <span class="slab-set">${setLine} ${c.detail}</span>
+            <span class="slab-name">${c.name}</span>
+            <span class="slab-raw">Raw ${money(c.price)}</span>
+          </div>
+          <div class="slab-grade"><b>${g.g}</b><span>${g.name}</span></div>
+        </div>
+        <div class="slab-window">${card}</div>
       </div>`;
   }
 
@@ -184,6 +226,9 @@
         <summary>View odds</summary>
         <p>Cards 1–${pack.cards - 1}</p><ul>${pct(pack.weights)}</ul>
         <p>Hit card</p><ul>${pct(pack.hit)}</ul>
+        <p>Grade (every card)</p><ul>${GRADES.map(
+          (x) => `<li>${x.g} ${x.name} <small>(×${x.m} raw)</small> <b>${((x.w / GRADE_TOTAL) * 100).toFixed(1).replace(/\.0$/, "")}%</b></li>`
+        ).join("")}</ul>
       </details>`;
   }
 
@@ -197,8 +242,10 @@
     const plEl = $("#w-pl");
     plEl.textContent = (pl >= 0 ? "+" : "−") + money(Math.abs(pl));
     plEl.className = pl >= 0 ? "pos" : "neg";
-    const best = state.stats.best && BY_ID[state.stats.best.cardId];
-    $("#w-best").textContent = best ? `${best.name} (${money(best.price)})` : "—";
+    const best = state.stats.best && BY_ID[state.stats.best.cardId] && state.stats.best;
+    $("#w-best").textContent = best
+      ? `${BY_ID[best.cardId].name}${best.grade ? " (" + best.grade + ")" : ""} ${money(pullValue(best))}`
+      : "—";
   }
 
   function renderShop() {
@@ -223,8 +270,9 @@
     let items = state.collection.filter((p) => filter === "all" || BY_ID[p.cardId].set === filter);
     items.sort((a, b) => {
       const ca = BY_ID[a.cardId], cb = BY_ID[b.cardId];
-      if (sort === "value") return cb.price - ca.price;
-      if (sort === "rarity") return rarityRank(cb.rarity) - rarityRank(ca.rarity) || cb.price - ca.price;
+      if (sort === "value") return pullValue(b) - pullValue(a);
+      if (sort === "rarity") return rarityRank(cb.rarity) - rarityRank(ca.rarity) || pullValue(b) - pullValue(a);
+      if (sort === "grade") return (b.grade || 0) - (a.grade || 0) || pullValue(b) - pullValue(a);
       return b.at - a.at;
     });
 
@@ -235,7 +283,7 @@
             (p) => `
         <div class="coll-item">
           ${cardHTML(p)}
-          <button class="btn-small sell" data-uid="${p.uid}">Sell ${money(round2(BY_ID[p.cardId].price * SELL_RATE))}</button>
+          <button class="btn-small sell" data-uid="${p.uid}">Sell ${money(round2(pullValue(p) * SELL_RATE))}</button>
         </div>`
           )
           .join("")
@@ -300,17 +348,67 @@
     controls.innerHTML = `<button class="btn" id="reveal-all">Reveal all</button>`;
   }
 
+  // Dramatic reveal thresholds (graded value)
+  const BIG_HIT = 500;
+  const GRAIL_HIT = 5000;
+
   function reveal(el) {
-    if (!el || el.classList.contains("flipped")) return;
-    const card = BY_ID[current.pulls[+el.dataset.i].cardId];
+    if (!el || el.classList.contains("flipped") || el.classList.contains("suspense")) return;
+    const pull = current.pulls[+el.dataset.i];
+    const value = pullValue(pull);
+    const level = value >= GRAIL_HIT ? "grail" : value >= BIG_HIT ? "big" : null;
+    if (!level) return flip(el, pull);
+
+    // Build suspense: rumble + glow while the rest of the pack dims, then the big reveal
+    el.classList.add("suspense", "suspense-" + level);
+    overlay.classList.add("dim");
+    setTimeout(() => {
+      el.classList.remove("suspense", "suspense-" + level);
+      overlay.classList.remove("dim");
+      flip(el, pull);
+      celebrate(level, pull, value);
+    }, level === "grail" ? 2000 : 1300);
+  }
+
+  function celebrate(level, pull, value) {
+    const card = BY_ID[pull.cardId];
+    const colors = level === "grail"
+      ? ["#fbbf24", "#fde68a", "#f59e0b", "#ffffff", "#facc15"]
+      : ["#60a5fa", "#e879f9", "#4ade80", "#facc15", "#ffffff"];
+    const count = level === "grail" ? 140 : 70;
+    let bits = "";
+    for (let i = 0; i < count; i++) {
+      bits += `<i style="--x:${(Math.random() * 2 - 1) * 48}vw;--y:${-(25 + Math.random() * 55)}vh;--r:${Math.round(Math.random() * 1080 - 540)}deg;--c:${colors[i % colors.length]};--t:${(1.6 + Math.random() * 1.4).toFixed(2)}s;--dl:${(Math.random() * 0.25).toFixed(2)}s"></i>`;
+    }
+    const fx = document.createElement("div");
+    fx.className = "fx fx-" + level;
+    fx.innerHTML = `
+      <div class="fx-flash"></div>
+      <div class="fx-ring"></div><div class="fx-ring r2"></div>
+      <div class="fx-confetti">${bits}</div>
+      <div class="fx-banner">
+        <span>${level === "grail" ? "GRAIL PULL!" : "BIG HIT!"}</span>
+        <b>${card.name}${pull.grade ? " · Grade " + pull.grade : ""}</b>
+        <em>${money(value)}</em>
+      </div>`;
+    overlay.appendChild(fx);
+    stage.classList.add(level === "grail" ? "quake-big" : "quake");
+    setTimeout(() => stage.classList.remove("quake", "quake-big"), 800);
+    try { if (navigator.vibrate) navigator.vibrate(level === "grail" ? [120, 60, 240] : 90); } catch {}
+    setTimeout(() => fx.remove(), level === "grail" ? 4200 : 3200);
+  }
+
+  function flip(el, pull) {
+    const card = BY_ID[pull.cardId];
     el.classList.add("flipped");
     if (rarityRank(card.rarity) >= 2) el.classList.add("hit", "hit-" + card.rarity);
+    if (pull.grade === 10) el.classList.add("hit", "hit-gem");
     current.revealed++;
-    if (current.revealed === current.pulls.length) setTimeout(showSummary, 500);
+    if (current.revealed === current.pulls.length) setTimeout(showSummary, 700);
   }
 
   function packTotal() {
-    return round2(current.pulls.reduce((s, p) => s + BY_ID[p.cardId].price, 0));
+    return round2(current.pulls.reduce((s, p) => s + pullValue(p), 0));
   }
 
   function showSummary() {
@@ -335,9 +433,10 @@
     } else {
       state.collection.push(...current.pulls);
     }
-    const top = current.pulls.reduce((a, b) => (BY_ID[b.cardId].price > BY_ID[a.cardId].price ? b : a));
-    if (!state.stats.best || BY_ID[top.cardId].price > BY_ID[state.stats.best.cardId].price) {
-      state.stats.best = { cardId: top.cardId };
+    const top = current.pulls.reduce((a, b) => (pullValue(b) > pullValue(a) ? b : a));
+    const best = state.stats.best;
+    if (!best || !BY_ID[best.cardId] || pullValue(top) > pullValue(best)) {
+      state.stats.best = { cardId: top.cardId, grade: top.grade };
     }
     save();
     renderAll();
@@ -368,7 +467,14 @@
     if (t.closest(".buy")) return startOpening(t.closest(".buy").dataset.pack);
     if (t.closest(".flip")) return reveal(t.closest(".flip"));
     if (t.id === "reveal-all") {
-      document.querySelectorAll(".flip:not(.flipped)").forEach((el, i) => setTimeout(() => reveal(el), i * 250));
+      // Flip cards one by one; wait out the suspense on big hits before moving on
+      const rest = [...document.querySelectorAll(".flip:not(.flipped)")];
+      let delay = 0;
+      rest.forEach((el) => {
+        setTimeout(() => reveal(el), delay);
+        const v = pullValue(current.pulls[+el.dataset.i]);
+        delay += v >= GRAIL_HIT ? 3200 : v >= BIG_HIT ? 2300 : 250;
+      });
       t.remove();
       return;
     }
@@ -385,7 +491,7 @@
       const idx = state.collection.findIndex((p) => p.uid === id);
       if (idx > -1) {
         const card = BY_ID[state.collection[idx].cardId];
-        const gain = round2(card.price * SELL_RATE);
+        const gain = round2(pullValue(state.collection[idx]) * SELL_RATE);
         state.balance = round2(state.balance + gain);
         state.collection.splice(idx, 1);
         save();
@@ -405,7 +511,7 @@
   $("#sell-bulk").addEventListener("click", () => {
     const bulk = state.collection.filter((p) => rarityRank(BY_ID[p.cardId].rarity) <= 1);
     if (!bulk.length) return toast("No commons or uncommons to sell.");
-    const gain = round2(bulk.reduce((s, p) => s + BY_ID[p.cardId].price * SELL_RATE, 0));
+    const gain = round2(bulk.reduce((s, p) => s + pullValue(p) * SELL_RATE, 0));
     state.collection = state.collection.filter((p) => rarityRank(BY_ID[p.cardId].rarity) > 1);
     state.balance = round2(state.balance + gain);
     save();
